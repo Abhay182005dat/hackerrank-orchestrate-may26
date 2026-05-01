@@ -5,8 +5,13 @@
 ```bash
 cd hackerrank-orchestrate-may26
 pip install -r code/requirements.txt
-cp .env.example .env          # then add your ANTHROPIC_API_KEY to .env
+cp .env.example .env
+# Open .env and set: ANTHROPIC_API_KEY=your_key_here
 ```
+
+> **Free options**: Sign up at console.anthropic.com for $5 free credits
+> (no card needed), or sign up at console.groq.com for a completely free
+> Groq API key and store it as ANTHROPIC_API_KEY in your .env file.
 
 ## Run
 

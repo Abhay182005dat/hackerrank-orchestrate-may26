@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from groq import Groq
+import anthropic
 
 from classifier import classify_request_type
 from prompts import TRIAGE_SYSTEM_PROMPT, TRIAGE_USER_PROMPT
@@ -45,19 +45,19 @@ class TriageResult:
 # --------------------------------------------------------------------------- #
 # LLM client (reused across calls)
 # --------------------------------------------------------------------------- #
-_client: Optional[Groq] = None
+_client: Optional[anthropic.Anthropic] = None
 
 
-def _get_client() -> Groq:
-    """Lazy-initialize the Groq client."""
+def _get_client() -> anthropic.Anthropic:
+    """Lazy-initialize the Anthropic client."""
     global _client
     if _client is None:
-        api_key = os.environ.get("API_KEY", "")
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             raise RuntimeError(
-                "API_KEY not set. Add it to .env or environment."
+                "ANTHROPIC_API_KEY not set. Add it to .env or environment."
             )
-        _client = Groq(api_key=api_key)
+        _client = anthropic.Anthropic(api_key=api_key)
     return _client
 
 
@@ -65,19 +65,16 @@ def _get_client() -> Groq:
 # Chunk formatting for the LLM prompt
 # --------------------------------------------------------------------------- #
 def _format_chunks(chunks: list[Chunk]) -> str:
-    """Format retrieved chunks into a readable string for the LLM context.
-    Truncates each chunk to save tokens on free-tier APIs."""
+    """Format retrieved chunks into a readable string for the LLM context."""
     if not chunks:
         return "(No relevant documents found)"
 
     parts = []
     for i, chunk in enumerate(chunks, 1):
-        # Truncate chunk text to ~300 chars to stay within rate limits
-        text = chunk.text[:500]
         parts.append(
-            f"[Doc {i}] (Source: {chunk.source_file}, "
-            f"Company: {chunk.company})\n"
-            f"{text}"
+            f"[Document {i}] (Source: {chunk.source_file}, "
+            f"Company: {chunk.company}, Score: {chunk.score:.2f})\n"
+            f"{chunk.text}"
         )
     return "\n\n---\n\n".join(parts)
 
@@ -167,7 +164,7 @@ def triage_ticket(issue: str, subject: str, company: str) -> TriageResult:
 
     # Step 1: Retrieve relevant corpus chunks
     query = f"{subject} {issue}".strip()
-    chunks = retrieve(query, company=company_for_retrieval, top_k=3)
+    chunks = retrieve(query, company=company_for_retrieval, top_k=5)
 
     # Step 2: Classify request type
     request_type = classify_request_type(issue, subject, company_label)
@@ -244,17 +241,15 @@ def _llm_synthesize(issue: str, subject: str, company: str,
     last_error = None
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                max_tokens=768,
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1024,
                 temperature=0,
-                messages=[
-                    {"role": "system", "content": TRIAGE_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
+                system=TRIAGE_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
             )
 
-            raw_text = response.choices[0].message.content
+            raw_text = response.content[0].text
             parsed = _extract_json(raw_text)
 
             # Validate required fields

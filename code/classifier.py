@@ -12,7 +12,7 @@ import os
 import re
 import time
 
-from groq import Groq
+import anthropic
 
 from prompts import CLASSIFICATION_SYSTEM_PROMPT, CLASSIFICATION_USER_PROMPT
 
@@ -105,28 +105,26 @@ def _llm_classify(issue: str, subject: str, company: str,
                   max_retries: int = 3) -> str:
     """Fallback: use LLM for classification when heuristics are ambiguous.
     Retries with exponential backoff on connection errors."""
-    api_key = os.environ.get("API_KEY", "")
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return "product_issue"  # safe default
 
-    client = Groq(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key)
     user_msg = CLASSIFICATION_USER_PROMPT.format(
         issue=issue, subject=subject, company=company
     )
 
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
                 max_tokens=20,
                 temperature=0,
-                messages=[
-                    {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
+                system=CLASSIFICATION_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_msg}],
             )
 
-            result = response.choices[0].message.content.strip().lower()
+            result = response.content[0].text.strip().lower()
 
             # Validate
             if result in VALID_TYPES:

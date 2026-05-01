@@ -9,20 +9,18 @@ Writes: support_tickets/output.csv
 
 Design decisions:
 - Resume support: if output.csv already has rows, skip those and continue
-  from where we left off. This handles rate-limit interruptions gracefully.
+  from where we left off. This handles interruptions gracefully.
 - Errors per row are caught and handled gracefully — one bad ticket never
   crashes the entire run. Failed rows get status=escalated.
 - Uses tqdm for a progress indicator during processing.
 - CSV output uses QUOTE_ALL for response/justification fields to safely
   handle embedded commas and newlines.
-- Loads .env file for API_KEY via python-dotenv.
-- 1-second delay between tickets to respect Groq free-tier rate limits.
+- Loads .env file for ANTHROPIC_API_KEY via python-dotenv.
 """
 
 import csv
 import os
 import sys
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -50,11 +48,8 @@ def _load_existing_results(output_csv: Path) -> list[list[str]]:
         if header is None:
             return []
         for row in reader:
-            # Only count rows that aren't error fallbacks from rate limits
-            if len(row) >= 5 and 'LLM synthesis failed' not in row[3]:
+            if len(row) >= 5:
                 existing.append(row)
-            else:
-                break  # stop at first failed row — re-process from there
     return existing
 
 
@@ -69,8 +64,8 @@ def main():
         print("[main] No .env file found — using existing environment variables")
 
     # Verify API key
-    if not os.environ.get("API_KEY"):
-        print("ERROR: API_KEY not set. Add it to .env or environment.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("ERROR: ANTHROPIC_API_KEY not set. Add it to .env or environment.")
         sys.exit(1)
 
     # Paths
@@ -129,9 +124,6 @@ def main():
                 justification=f"Processing error: {str(e)[:100]}",
                 request_type="product_issue",
             ))
-
-        # Brief delay to respect Groq free-tier rate limits
-        time.sleep(1)
 
     # Step 5: Write full output CSV (existing + new)
     print(f"\n[main] Writing results to {output_csv}")
